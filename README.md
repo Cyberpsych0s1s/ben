@@ -24,7 +24,7 @@ sudo pacman -S ncurses
 
 ### Build & Install
 ```bash
-git clone https://github.com/Spunchkin/ben.git
+git clone https://github.com/Almahr1/ben.git
 cd ben
 make
 sudo make install
