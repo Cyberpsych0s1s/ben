@@ -78,6 +78,10 @@ ben [filename]    # Open file or create new
 | `:set ic` | Case insensitive search |
 | `:set noic` | Case sensitive search |
 
+## Bounty Board
+- [] Add config file support
+- [] Add word motions 
+
 ## License
 
 MIT License - see LICENSE file for details.
