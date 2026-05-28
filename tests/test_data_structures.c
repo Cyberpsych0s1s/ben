@@ -164,8 +164,8 @@ test_line_insertion_with_editor_state (void)
 
   // Test inserting a line after the current line
   Line *new_line = create_new_line ("Second line");
-  insert_line_after_buffer (&state.buffer, state.buffer.current_line_node,
-                            new_line);
+  insert_line_after (&state.buffer, state.buffer.current_line_node,
+                     new_line);
 
   ASSERT_EQ (2, state.buffer.num_lines,
              "Buffer should have 2 lines after insertion");

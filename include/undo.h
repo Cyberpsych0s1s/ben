@@ -19,17 +19,25 @@ typedef struct {
     UndoType type;
     Line *target_line;      // Direct pointer to the line (replaces line_num)
     size_t col_pos;
-    char data[256];
+    char *data;             // Heap-allocated, owned by the op (may be NULL when data_len == 0)
     size_t data_len;
     int is_valid;          // Flag to mark if this operation is still valid
 } UndoOperation;
 
+/*
+ * Ring buffer holding up to MAX_UNDO_OPERATIONS operations.
+ *   tail        — index of the oldest operation in the ring
+ *   count       — number of valid operations currently held [0..MAX]
+ *   undo_depth  — number of operations currently undone (i.e. the redo stack
+ *                 size); the newest op that can still be undone sits at offset
+ *                 (count - undo_depth - 1) from tail.
+ * Push overwrites the oldest entry when count == MAX.
+ */
 typedef struct {
     UndoOperation operations[MAX_UNDO_OPERATIONS];
-    int head;
     int tail;
-    int current;
     int count;
+    int undo_depth;
 } UndoStack;
 
 extern UndoStack undo_stack;

@@ -6,50 +6,99 @@
 
 UndoStack undo_stack;
 
+/* Slot index (in operations[]) for the entry at the given offset from tail.
+   offset is expected to be in [0, count). */
+static inline int
+ring_slot (int offset_from_tail)
+{
+  return (undo_stack.tail + offset_from_tail) % MAX_UNDO_OPERATIONS;
+}
+
+/* Offset (from tail) of the newest undoable op, or -1 if there is none. */
+static inline int
+top_undo_offset (void)
+{
+  return undo_stack.count - undo_stack.undo_depth - 1;
+}
+
+/* Offset (from tail) of the next op to redo, or -1 if there is none. */
+static inline int
+top_redo_offset (void)
+{
+  return undo_stack.undo_depth > 0
+             ? undo_stack.count - undo_stack.undo_depth
+             : -1;
+}
+
+/* Reset an op's payload, freeing any owned heap buffer. */
+static void
+release_op_data (UndoOperation *op)
+{
+  if (!op)
+    return;
+  free (op->data);
+  op->data = NULL;
+  op->data_len = 0;
+  op->is_valid = 0;
+  op->target_line = NULL;
+}
+
 void
 init_undo_system (void)
 {
-  undo_stack.head = 0;
-  undo_stack.tail = 0;
-  undo_stack.current = -1;
-  undo_stack.count = 0;
-
+  /* If we're re-initialising over an existing system, free any owned data. */
   for (int i = 0; i < MAX_UNDO_OPERATIONS; i++)
     {
-      undo_stack.operations[i].is_valid = 0;
-      undo_stack.operations[i].target_line = NULL;
+      release_op_data (&undo_stack.operations[i]);
     }
+  undo_stack.tail = 0;
+  undo_stack.count = 0;
+  undo_stack.undo_depth = 0;
 }
 
 void
 push_undo_operation (UndoType type, Line *target_line, size_t col_pos,
                      const char *data, size_t data_len)
 {
+  /* Pushing a fresh op invalidates any redo history. */
   clear_redo_stack ();
 
-  undo_stack.current = (undo_stack.current + 1) % MAX_UNDO_OPERATIONS;
-
-  UndoOperation *op = &undo_stack.operations[undo_stack.current];
-  op->type = type;
-  op->target_line = target_line;
-  op->col_pos = col_pos;
-  op->data_len
-      = data_len < sizeof (op->data) ? data_len : sizeof (op->data) - 1;
-  op->is_valid = 1;
-
-  if (data && op->data_len > 0)
-    {
-      memcpy (op->data, data, op->data_len);
-    }
-  op->data[op->data_len] = '\0';
-
+  int slot;
   if (undo_stack.count < MAX_UNDO_OPERATIONS)
     {
+      slot = ring_slot (undo_stack.count);
       undo_stack.count++;
     }
   else
     {
+      /* Ring full — overwrite oldest, advance tail. */
+      slot = undo_stack.tail;
       undo_stack.tail = (undo_stack.tail + 1) % MAX_UNDO_OPERATIONS;
+    }
+
+  UndoOperation *op = &undo_stack.operations[slot];
+  release_op_data (op); /* drop any previous payload at this slot */
+
+  op->type = type;
+  op->target_line = target_line;
+  op->col_pos = col_pos;
+  op->data_len = 0;
+  op->data = NULL;
+  op->is_valid = 1;
+
+  if (data && data_len > 0)
+    {
+      op->data = malloc (data_len + 1);
+      if (!op->data)
+        {
+          /* OOM while recording history — drop the op rather than crash.
+             User loses an undo step but state is intact. */
+          op->is_valid = 0;
+          return;
+        }
+      memcpy (op->data, data, data_len);
+      op->data[data_len] = '\0';
+      op->data_len = data_len;
     }
 }
 
@@ -77,11 +126,13 @@ invalidate_undo_operations_for_line (Line *deleted_line)
   if (!deleted_line)
     return;
 
+  /* Walk every physical slot — a stale reference can sit anywhere in the
+     ring, not just inside the [tail, tail+count) active window. */
   for (int i = 0; i < MAX_UNDO_OPERATIONS; i++)
     {
       if (undo_stack.operations[i].target_line == deleted_line)
         {
-          undo_stack.operations[i].is_valid = 0;
+          release_op_data (&undo_stack.operations[i]);
         }
     }
 }
@@ -89,33 +140,31 @@ invalidate_undo_operations_for_line (Line *deleted_line)
 int
 can_undo (void)
 {
-  if (undo_stack.count <= 0 || undo_stack.current < 0)
+  int off = top_undo_offset ();
+  if (off < 0)
     return 0;
-
-  return undo_stack.operations[undo_stack.current].is_valid;
+  return undo_stack.operations[ring_slot (off)].is_valid;
 }
 
 int
 can_redo (void)
 {
-  if (undo_stack.current >= undo_stack.count - 1)
+  int off = top_redo_offset ();
+  if (off < 0)
     return 0;
-
-  int next_index = undo_stack.current + 1;
-  return undo_stack.operations[next_index].is_valid;
+  return undo_stack.operations[ring_slot (off)].is_valid;
 }
 
 void
 clear_redo_stack (void)
 {
-  if (undo_stack.current >= 0)
+  for (int i = 0; i < undo_stack.undo_depth; i++)
     {
-      for (int i = undo_stack.current + 1; i < undo_stack.count; i++)
-        {
-          undo_stack.operations[i].is_valid = 0;
-        }
-      undo_stack.count = undo_stack.current + 1;
+      int off = undo_stack.count - 1 - i;
+      undo_stack.operations[ring_slot (off)].is_valid = 0;
     }
+  undo_stack.count -= undo_stack.undo_depth;
+  undo_stack.undo_depth = 0;
 }
 
 void
@@ -157,7 +206,8 @@ perform_undo (TextBuffer *buffer)
   if (!can_undo () || !buffer)
     return;
 
-  UndoOperation *op = &undo_stack.operations[undo_stack.current];
+  int off = top_undo_offset ();
+  UndoOperation *op = &undo_stack.operations[ring_slot (off)];
 
   if (op->type == UNDO_INSERT_LINE && op->target_line == NULL)
     {
@@ -189,7 +239,7 @@ perform_undo (TextBuffer *buffer)
           free (to_remove);
           buffer->num_lines--;
         }
-      undo_stack.current--;
+      undo_stack.undo_depth++;
       validate_cursor_position (buffer);
       return;
     }
@@ -198,7 +248,7 @@ perform_undo (TextBuffer *buffer)
       && (!op->is_valid || !is_line_valid_in_buffer (buffer, op->target_line)))
     {
       op->is_valid = 0;
-      undo_stack.current--; // Skip this invalid operation
+      undo_stack.undo_depth++; // Skip this invalid operation
       return;
     }
 
@@ -276,7 +326,7 @@ perform_undo (TextBuffer *buffer)
         Line *new_line = create_new_line (op->data);
         if (new_line)
           {
-            insert_line_after_buffer (buffer, target_line, new_line);
+            insert_line_after (buffer, target_line, new_line);
           }
         break;
       }
@@ -346,7 +396,7 @@ perform_undo (TextBuffer *buffer)
                   }
 
                 // Insert the new line
-                insert_line_after_buffer (buffer, target_line, new_line);
+                insert_line_after (buffer, target_line, new_line);
 
                 // Update cursor if it was beyond the split point
                 if (buffer->current_line_node == target_line
@@ -362,7 +412,7 @@ perform_undo (TextBuffer *buffer)
       }
     }
 
-  undo_stack.current--;
+  undo_stack.undo_depth++;
 
   // Always validate cursor position after undo
   validate_cursor_position (buffer);
@@ -374,14 +424,14 @@ perform_redo (TextBuffer *buffer)
   if (!can_redo () || !buffer)
     return;
 
-  undo_stack.current++;
-  UndoOperation *op = &undo_stack.operations[undo_stack.current];
+  int off = top_redo_offset ();
+  UndoOperation *op = &undo_stack.operations[ring_slot (off)];
 
   // Validate the target line still exists in the buffer
   if (!op->is_valid || !is_line_valid_in_buffer (buffer, op->target_line))
     {
       op->is_valid = 0;
-      undo_stack.current--;
+      undo_stack.undo_depth--;
       return;
     }
 
@@ -422,7 +472,7 @@ perform_redo (TextBuffer *buffer)
         Line *new_line = create_new_line (op->data);
         if (new_line)
           {
-            insert_line_after_buffer (buffer, target_line, new_line);
+            insert_line_after (buffer, target_line, new_line);
           }
         break;
       }
@@ -484,7 +534,7 @@ perform_redo (TextBuffer *buffer)
                   }
 
                 // Insert the new line
-                insert_line_after_buffer (buffer, target_line, new_line);
+                insert_line_after (buffer, target_line, new_line);
 
                 // Update cursor if it was beyond the split point
                 if (buffer->current_line_node == target_line
@@ -543,6 +593,8 @@ perform_redo (TextBuffer *buffer)
         break;
       }
     }
+
+  undo_stack.undo_depth--;
 
   // Always validate cursor position after redo
   validate_cursor_position (buffer);

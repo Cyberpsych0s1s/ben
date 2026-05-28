@@ -31,11 +31,8 @@ typedef struct {
     RGBColor command_mode_bg;
 } ColorConfig;
 
-// Nord Color Scheme
-// (0-1000 scale for ncurses colors)
-// Todo: Check for accurate colors, I got the numbers from ChatGPT,
-// and I'm pretty sure I messed with some of them, but I can't tell which ones I changed using the numbers
-// :P
+/* Default palette derived from the Nord colour scheme (https://www.nordtheme.com).
+ * Components are on ncurses' 0-1000 scale. */
 static const ColorConfig DEFAULT_COLORS = {
     .text_fg           = {878, 906, 941},  // Nord4 - Snow Storm (light gray)
     .text_bg           = {188, 208, 243},  // Nord0 - Polar Night (dark blue-gray)

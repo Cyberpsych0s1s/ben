@@ -1,7 +1,6 @@
 #include "data_structures.h"
 #include "test_framework.h"
 #include "undo.h"
-#include <linux/limits.h>
 
 void
 test_undo_insert_char (void)

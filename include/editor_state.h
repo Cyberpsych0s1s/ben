@@ -19,7 +19,7 @@ typedef struct {
     const char *filename;           // (can be NULL)
 } EditorState;
 
-void init_editor_state(EditorState *state, const char *filename);
+int  init_editor_state(EditorState *state, const char *filename);
 void free_editor_state(EditorState *state);
 
 void set_temp_message(EditorState *state, const char *message);

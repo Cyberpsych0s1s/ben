@@ -11,6 +11,8 @@
 #include "text_editor_functions.h"
 #include "undo.h"
 #include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -95,7 +97,7 @@ drawModeIndicator (EditorMode mode, int line_wrap_enabled)
 int
 get_wrapped_line_count (const char *text, int max_width, int line_wrap_enabled)
 {
-  if (!line_wrap_enabled)
+  if (!line_wrap_enabled || max_width <= 0)
     {
       return 1;
     }
@@ -113,6 +115,9 @@ void
 draw_wrapped_line (int row, int col, const char *text, int max_width,
                    int color_pair, int line_wrap_enabled)
 {
+  if (max_width <= 0)
+    return;
+
   if (!line_wrap_enabled)
     {
       attron (COLOR_PAIR (color_pair));
@@ -355,7 +360,8 @@ get_cursor_screen_row (const TextBuffer *buffer, int visible_lines,
       line_count++;
     }
 
-  if (current_line_node == buffer->current_line_node && line_wrap_enabled)
+  if (current_line_node == buffer->current_line_node && line_wrap_enabled
+      && text_width > 0)
     {
       int cursor_wrapped_line = buffer->current_col_offset / text_width;
       screen_row += cursor_wrapped_line;
@@ -472,11 +478,17 @@ handleInsertModeInput (int ch, EditorState *state)
           char *line_text = line_to_string (line);
           if (line_text)
             {
+              Line *new_line = create_new_line (line_text + current_col);
+              if (!new_line)
+                {
+                  free (line_text);
+                  set_temp_message (state, "Out of memory");
+                  break;
+                }
+
               push_undo_operation (UNDO_SPLIT_LINE, line, current_col,
                                    line_text + current_col,
                                    strlen (line_text + current_col));
-
-              Line *new_line = create_new_line (line_text + current_col);
 
               gap_buffer_move_cursor_to (line->gb, current_col);
               size_t chars_to_delete = line_get_length (line) - current_col;
@@ -521,10 +533,15 @@ handleInsertModeInput (int ch, EditorState *state)
 
           if (current_text)
             {
+              if (line_insert_string_at (prev_line, prev_len, current_text)
+                  != 0)
+                {
+                  free (current_text);
+                  set_temp_message (state, "Out of memory");
+                  break;
+                }
               push_undo_operation (UNDO_MERGE_LINES, prev_line, prev_len,
                                    current_text, strlen (current_text));
-
-              line_insert_string_at (prev_line, prev_len, current_text);
               free (current_text);
             }
 
@@ -574,11 +591,15 @@ handleInsertModeInput (int ch, EditorState *state)
 
           if (next_text)
             {
-              push_undo_operation (UNDO_MERGE_LINES, line,
-                                   line_get_length (line), next_text,
-                                   strlen (next_text));
-
-              line_insert_string_at (line, line_get_length (line), next_text);
+              size_t line_len_before = line_get_length (line);
+              if (line_insert_string_at (line, line_len_before, next_text) != 0)
+                {
+                  free (next_text);
+                  set_temp_message (state, "Out of memory");
+                  break;
+                }
+              push_undo_operation (UNDO_MERGE_LINES, line, line_len_before,
+                                   next_text, strlen (next_text));
               free (next_text);
             }
 
@@ -656,10 +677,14 @@ handleInsertModeInput (int ch, EditorState *state)
     default:
       if (isprint (ch))
         {
-          push_undo_operation (UNDO_INSERT_CHAR, line, current_col,
-                               (char *)&ch, 1);
-
-          line_insert_char_at (line, current_col, ch);
+          char inserted = (char)ch;
+          if (line_insert_char_at (line, current_col, inserted) != 0)
+            {
+              set_temp_message (state, "Out of memory");
+              break;
+            }
+          push_undo_operation (UNDO_INSERT_CHAR, line, current_col, &inserted,
+                               1);
           buffer->current_col_offset++;
         }
       break;
@@ -807,9 +832,14 @@ handleNormalModeInput (int ch, EditorState *state)
 
     case 'o':
       {
+        Line *new_line = create_new_line_empty ();
+        if (!new_line)
+          {
+            set_temp_message (state, "Out of memory");
+            break;
+          }
         push_undo_operation (UNDO_INSERT_LINE, line, 0, "", 0);
 
-        Line *new_line = create_new_line_empty ();
         insert_line_after (buffer, line, new_line);
         buffer->current_line_node = new_line;
         buffer->current_col_offset = 0;
@@ -827,6 +857,11 @@ handleNormalModeInput (int ch, EditorState *state)
     case 'O':
       {
         Line *new_line = create_new_line_empty ();
+        if (!new_line)
+          {
+            set_temp_message (state, "Out of memory");
+            break;
+          }
 
         if (line->prev != NULL)
           {
@@ -1002,8 +1037,21 @@ handleCommandModeInput (int ch, char *command, EditorState *state)
         {
           if (state->filename != NULL && strlen (state->filename) > 0)
             {
-              saveToFile (state->filename, buffer);
-              set_temp_message (state, "File saved");
+              int lines = 0;
+              size_t bytes = 0;
+              char msg[256];
+              if (saveToFile (state->filename, buffer, &lines, &bytes) == 0)
+                {
+                  snprintf (msg, sizeof (msg), "\"%s\" %dL, %luB written",
+                            state->filename, lines,
+                            (unsigned long)bytes);
+                }
+              else
+                {
+                  snprintf (msg, sizeof (msg), "Error writing \"%s\": %s",
+                            state->filename, strerror (errno));
+                }
+              set_temp_message (state, msg);
             }
           else
             {
@@ -1013,30 +1061,75 @@ handleCommandModeInput (int ch, char *command, EditorState *state)
       else if (strncmp (command, "w ", 2) == 0)
         {
           const char *save_filename = command + 2; // Skip "w "
+          while (*save_filename == ' ')
+            save_filename++;
           if (strlen (save_filename) > 0)
             {
-              saveToFile (save_filename, buffer);
-              set_temp_message (state, "File saved");
+              int lines = 0;
+              size_t bytes = 0;
+              char msg[256];
+              if (saveToFile (save_filename, buffer, &lines, &bytes) == 0)
+                {
+                  snprintf (msg, sizeof (msg), "\"%s\" %dL, %luB written",
+                            save_filename, lines, (unsigned long)bytes);
+                }
+              else
+                {
+                  snprintf (msg, sizeof (msg), "Error writing \"%s\": %s",
+                            save_filename, strerror (errno));
+                }
+              set_temp_message (state, msg);
+            }
+          else
+            {
+              set_temp_message (state, "Error: No filename specified");
             }
         }
       else if (strcmp (command, "wq") == 0)
         {
-          if (state->filename != NULL && strlen (state->filename) > 0)
+          if (state->filename == NULL || strlen (state->filename) == 0)
             {
-              saveToFile (state->filename, buffer);
+              set_temp_message (state,
+                                "Error: No filename (use :wq <name> or :q!)");
             }
-          endwin ();
-          exit (EXIT_SUCCESS);
+          else
+            {
+              int lines = 0;
+              size_t bytes = 0;
+              if (saveToFile (state->filename, buffer, &lines, &bytes) == 0)
+                {
+                  endwin ();
+                  exit (EXIT_SUCCESS);
+                }
+              char msg[256];
+              snprintf (msg, sizeof (msg), "Error writing \"%s\": %s",
+                        state->filename, strerror (errno));
+              set_temp_message (state, msg);
+            }
         }
       else if (strncmp (command, "wq ", 3) == 0)
         {
           const char *save_filename = command + 3; // Skip "wq "
-          if (strlen (save_filename) > 0)
+          while (*save_filename == ' ')
+            save_filename++;
+          if (strlen (save_filename) == 0)
             {
-              saveToFile (save_filename, buffer);
+              set_temp_message (state, "Error: No filename specified");
             }
-          endwin ();
-          exit (EXIT_SUCCESS);
+          else
+            {
+              int lines = 0;
+              size_t bytes = 0;
+              if (saveToFile (save_filename, buffer, &lines, &bytes) == 0)
+                {
+                  endwin ();
+                  exit (EXIT_SUCCESS);
+                }
+              char msg[256];
+              snprintf (msg, sizeof (msg), "Error writing \"%s\": %s",
+                        save_filename, strerror (errno));
+              set_temp_message (state, msg);
+            }
         }
       else if (strcmp (command, "wrap") == 0)
         {

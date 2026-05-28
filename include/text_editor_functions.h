@@ -14,7 +14,7 @@
 
 #define MAX_COMMAND_LENGTH 256
 
-void saveToFile(const char *filename, TextBuffer *buffer);
+int  saveToFile(const char *filename, TextBuffer *buffer, int *lines_out, size_t *bytes_out);
 void loadFromFile(const char *filename, TextBuffer *buffer);
 
 void drawLineNumbers(int visible_lines, const TextBuffer *buffer, int top_line);

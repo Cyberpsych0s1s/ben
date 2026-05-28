@@ -2,11 +2,11 @@
 #include "text_editor_functions.h"
 #include <string.h>
 
-void
+int
 init_editor_state (EditorState *state, const char *filename)
 {
   if (!state)
-    return;
+    return -1;
 
   init_editor_buffer (&state->buffer);
 
@@ -23,6 +23,8 @@ init_editor_state (EditorState *state, const char *filename)
   else
     {
       Line *initial_line = create_new_line ("");
+      if (!initial_line)
+        return -1;
       insert_line_at_end (&state->buffer, initial_line);
       state->buffer.current_line_node = initial_line;
     }
@@ -30,6 +32,8 @@ init_editor_state (EditorState *state, const char *filename)
   if (state->buffer.head == NULL)
     {
       Line *initial_line = create_new_line ("");
+      if (!initial_line)
+        return -1;
       insert_line_at_end (&state->buffer, initial_line);
       state->buffer.current_line_node = initial_line;
     }
@@ -38,6 +42,7 @@ init_editor_state (EditorState *state, const char *filename)
       state->buffer.current_line_node = state->buffer.head;
       state->buffer.current_col_offset = 0;
     }
+  return 0;
 }
 
 void

@@ -9,13 +9,25 @@
 #include "editor_state.h"
 #include "text_editor_functions.h"
 #include "undo.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+static void
+restore_terminal (void)
+{
+  if (!isendwin ())
+    endwin ();
+}
 
 int
 main (int argc, char *argv[])
 {
   initscr ();
+  atexit (restore_terminal);
 
+#ifndef _WIN32
   set_escdelay (25);
+#endif
 
   start_color ();
   init_editor_colors ();
@@ -25,7 +37,12 @@ main (int argc, char *argv[])
 
   EditorState editor_state;
   const char *filename = (argc > 1) ? argv[1] : NULL;
-  init_editor_state (&editor_state, filename);
+  if (init_editor_state (&editor_state, filename) != 0)
+    {
+      endwin ();
+      fprintf (stderr, "ben: out of memory while initializing editor\n");
+      return EXIT_FAILURE;
+    }
 
   init_undo_system ();
 
@@ -59,7 +76,7 @@ main (int argc, char *argv[])
       int cursor_screen_col;
 
       if (editor_state.line_wrap_enabled
-          && editor_state.buffer.current_line_node != NULL)
+          && editor_state.buffer.current_line_node != NULL && text_width > 0)
         {
           cursor_screen_col
               = 8 + (editor_state.buffer.current_col_offset % text_width);

@@ -1,0 +1,22 @@
+# Build artefacts
+*.o
+*.obj
+*.exe
+ben
+ben_tests
+*.tmp
+
+# Editor cruft
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build directories
+build/
+out/
+
+# Test scratch
+test_file.txt
+test_editor_state.txt
+test_new_file.txt

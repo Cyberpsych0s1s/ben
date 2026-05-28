@@ -60,11 +60,11 @@ gap_buffer_cursor_position (const GapBuffer *gb)
   return gb->gap_start;
 }
 
-void
+int
 gap_buffer_ensure_capacity (GapBuffer *gb, size_t needed_capacity)
 {
   if (gb->capacity >= needed_capacity)
-    return;
+    return 0;
 
   size_t new_capacity = gb->capacity * GROWTH_FACTOR;
   if (new_capacity < needed_capacity)
@@ -74,7 +74,7 @@ gap_buffer_ensure_capacity (GapBuffer *gb, size_t needed_capacity)
 
   char *new_buffer = malloc (new_capacity);
   if (!new_buffer)
-    return;
+    return -1;
 
   memcpy (new_buffer, gb->buffer, gb->gap_start);
 
@@ -86,6 +86,7 @@ gap_buffer_ensure_capacity (GapBuffer *gb, size_t needed_capacity)
   gb->buffer = new_buffer;
   gb->gap_end = new_gap_end;
   gb->capacity = new_capacity;
+  return 0;
 }
 
 void
@@ -114,37 +115,41 @@ gap_buffer_move_cursor_to (GapBuffer *gb, size_t position)
     }
 }
 
-void
+int
 gap_buffer_insert_char (GapBuffer *gb, char c)
 {
   if (gap_buffer_gap_size (gb) == 0)
     {
-      gap_buffer_ensure_capacity (gb, gb->capacity + MIN_GAP_SIZE);
+      if (gap_buffer_ensure_capacity (gb, gb->capacity + MIN_GAP_SIZE) != 0)
+        return -1;
     }
 
   gb->buffer[gb->gap_start] = c;
   gb->gap_start++;
+  return 0;
 }
 
-void
+int
 gap_buffer_insert_string (GapBuffer *gb, const char *str)
 {
   if (!str)
-    return;
+    return 0;
 
   size_t str_len = strlen (str);
   if (str_len == 0)
-    return;
+    return 0;
 
   if (gap_buffer_gap_size (gb) < str_len)
     {
-      gap_buffer_ensure_capacity (gb, gb->capacity + str_len + MIN_GAP_SIZE);
+      if (gap_buffer_ensure_capacity (gb, gb->capacity + str_len + MIN_GAP_SIZE)
+          != 0)
+        return -1;
     }
 
-  for (size_t i = 0; i < str_len; i++)
-    {
-      gap_buffer_insert_char (gb, str[i]);
-    }
+  /* Gap is now guaranteed to have room — copy in one shot. */
+  memcpy (gb->buffer + gb->gap_start, str, str_len);
+  gb->gap_start += str_len;
+  return 0;
 }
 
 void

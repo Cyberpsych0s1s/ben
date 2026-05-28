@@ -37,7 +37,7 @@ test_save_and_load_file_with_editor_state (void)
   state.buffer.current_col_offset = 0;
 
   // Save the buffer to a file
-  saveToFile (TEST_FILENAME, &state.buffer);
+  saveToFile (TEST_FILENAME, &state.buffer, NULL, NULL);
 
   // Free the current state and create a new one for loading
   free_editor_state (&state);
@@ -169,7 +169,7 @@ test_save_to_new_file_with_editor_state (void)
 
   // Save to a new file
   const char *new_filename = "new_test_file.txt";
-  saveToFile (new_filename, &state.buffer);
+  saveToFile (new_filename, &state.buffer, NULL, NULL);
 
   // Verify file was created and contains correct content
   FILE *fp = fopen (new_filename, "r");
@@ -211,13 +211,13 @@ test_save_with_multiple_modes (void)
 
   // Test saving in different modes
   state.current_mode = MODE_INSERT;
-  saveToFile (TEST_FILENAME, &state.buffer);
+  saveToFile (TEST_FILENAME, &state.buffer, NULL, NULL);
 
   state.current_mode = MODE_COMMAND;
-  saveToFile (TEST_FILENAME, &state.buffer);
+  saveToFile (TEST_FILENAME, &state.buffer, NULL, NULL);
 
   state.current_mode = MODE_NORMAL;
-  saveToFile (TEST_FILENAME, &state.buffer);
+  saveToFile (TEST_FILENAME, &state.buffer, NULL, NULL);
 
   // Verify file exists and is readable
   FILE *fp = fopen (TEST_FILENAME, "r");
@@ -251,7 +251,7 @@ test_file_operations_with_line_wrap_settings (void)
   insert_line_at_end (&state.buffer, long_line);
   state.buffer.current_line_node = long_line;
 
-  saveToFile (TEST_FILENAME, &state.buffer);
+  saveToFile (TEST_FILENAME, &state.buffer, NULL, NULL);
 
   // Load into new state
   EditorState load_state;
