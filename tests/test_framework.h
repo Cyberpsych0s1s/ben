@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifndef TEST_FRAMEWORK_H
 #define TEST_FRAMEWORK_H
 

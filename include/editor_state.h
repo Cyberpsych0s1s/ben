@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: MIT
 #ifndef EDITOR_STATE_H
 #define EDITOR_STATE_H
 
 #include "data_structures.h"
+#include "search.h"
+#include "undo.h"
 
 
 typedef enum {
@@ -10,13 +13,15 @@ typedef enum {
     MODE_COMMAND,
 } EditorMode;
 
-typedef struct {
+typedef struct EditorStateTag {
     TextBuffer buffer;
     EditorMode current_mode;
     int top_line;                   // First visible line on screen
     int line_wrap_enabled;
     char temp_message[256];         // Temporary status messages
     const char *filename;           // (can be NULL)
+    UndoStack undo;                 // Per-editor undo/redo history
+    SearchState search;             // Per-editor search state
 } EditorState;
 
 int  init_editor_state(EditorState *state, const char *filename);

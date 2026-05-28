@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #include "gap_buffer.h"
 #include <stdio.h>
 #include <stdlib.h>

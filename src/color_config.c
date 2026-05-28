@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #include "color_config.h"
 
 // Global color configuration - can be modified at runtime

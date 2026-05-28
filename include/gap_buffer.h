@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifndef GAP_BUFFER_H
 #define GAP_BUFFER_H
 

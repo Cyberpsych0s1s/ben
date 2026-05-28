@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifndef UNDO_H
 #define UNDO_H
 
@@ -40,16 +41,15 @@ typedef struct {
     int undo_depth;
 } UndoStack;
 
-extern UndoStack undo_stack;
-
-void init_undo_system(void);
-void push_undo_operation(UndoType type, Line *target_line, size_t col_pos, const char *data, size_t data_len);
-int can_undo(void);
-int can_redo(void);
-void perform_undo(TextBuffer *buffer);
-void perform_redo(TextBuffer *buffer);
-void clear_redo_stack(void);
-void invalidate_undo_operations_for_line(Line *deleted_line);
+void init_undo_system(UndoStack *us);
+void free_undo_system(UndoStack *us);
+void push_undo_operation(UndoStack *us, UndoType type, Line *target_line, size_t col_pos, const char *data, size_t data_len);
+int can_undo(const UndoStack *us);
+int can_redo(const UndoStack *us);
+void perform_undo(UndoStack *us, TextBuffer *buffer);
+void perform_redo(UndoStack *us, TextBuffer *buffer);
+void clear_redo_stack(UndoStack *us);
+void invalidate_undo_operations_for_line(UndoStack *us, Line *deleted_line);
 int is_line_valid_in_buffer(TextBuffer *buffer, Line *target_line);
 size_t get_line_number(TextBuffer *buffer, Line *target);
 Line* get_line_by_number(TextBuffer *buffer, size_t line_num);

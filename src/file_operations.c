@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #define _POSIX_C_SOURCE 200809L
 
 #include "data_structures.h"

@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: MIT
 #ifndef SEARCH_H
 #define SEARCH_H
 
 #include "data_structures.h"
-#include "editor_state.h"
+
+struct EditorStateTag;        /* forward declaration; full type in editor_state.h */
+typedef struct EditorStateTag EditorState;
 
 #define MAX_SEARCH_TERM_LENGTH 256
 

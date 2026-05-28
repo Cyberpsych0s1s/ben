@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifdef _WIN32
 #include <pdcurses.h>
 #else
@@ -5,6 +6,7 @@
 #endif
 
 #include "data_structures.h"
+#include "editor_state.h"
 #include "search.h"
 #include <stddef.h>
 #include <stdlib.h>

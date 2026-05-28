@@ -1,33 +1,30 @@
+// SPDX-License-Identifier: MIT
 
 #include "data_structures.h"
 #include "undo.h"
 #include <stdlib.h>
 #include <string.h>
 
-UndoStack undo_stack;
-
 /* Slot index (in operations[]) for the entry at the given offset from tail.
    offset is expected to be in [0, count). */
 static inline int
-ring_slot (int offset_from_tail)
+ring_slot (const UndoStack *us, int offset_from_tail)
 {
-  return (undo_stack.tail + offset_from_tail) % MAX_UNDO_OPERATIONS;
+  return (us->tail + offset_from_tail) % MAX_UNDO_OPERATIONS;
 }
 
 /* Offset (from tail) of the newest undoable op, or -1 if there is none. */
 static inline int
-top_undo_offset (void)
+top_undo_offset (const UndoStack *us)
 {
-  return undo_stack.count - undo_stack.undo_depth - 1;
+  return us->count - us->undo_depth - 1;
 }
 
 /* Offset (from tail) of the next op to redo, or -1 if there is none. */
 static inline int
-top_redo_offset (void)
+top_redo_offset (const UndoStack *us)
 {
-  return undo_stack.undo_depth > 0
-             ? undo_stack.count - undo_stack.undo_depth
-             : -1;
+  return us->undo_depth > 0 ? us->count - us->undo_depth : -1;
 }
 
 /* Reset an op's payload, freeing any owned heap buffer. */
@@ -44,39 +41,62 @@ release_op_data (UndoOperation *op)
 }
 
 void
-init_undo_system (void)
+init_undo_system (UndoStack *us)
 {
-  /* If we're re-initialising over an existing system, free any owned data. */
+  if (!us)
+    return;
+  /* Caller may pass a stale stack; explicitly NULL out the data pointers so
+     release_op_data below doesn't free garbage. */
   for (int i = 0; i < MAX_UNDO_OPERATIONS; i++)
     {
-      release_op_data (&undo_stack.operations[i]);
+      us->operations[i].data = NULL;
+      us->operations[i].data_len = 0;
+      us->operations[i].is_valid = 0;
+      us->operations[i].target_line = NULL;
     }
-  undo_stack.tail = 0;
-  undo_stack.count = 0;
-  undo_stack.undo_depth = 0;
+  us->tail = 0;
+  us->count = 0;
+  us->undo_depth = 0;
 }
 
 void
-push_undo_operation (UndoType type, Line *target_line, size_t col_pos,
-                     const char *data, size_t data_len)
+free_undo_system (UndoStack *us)
 {
+  if (!us)
+    return;
+  for (int i = 0; i < MAX_UNDO_OPERATIONS; i++)
+    {
+      release_op_data (&us->operations[i]);
+    }
+  us->tail = 0;
+  us->count = 0;
+  us->undo_depth = 0;
+}
+
+void
+push_undo_operation (UndoStack *us, UndoType type, Line *target_line,
+                     size_t col_pos, const char *data, size_t data_len)
+{
+  if (!us)
+    return;
+
   /* Pushing a fresh op invalidates any redo history. */
-  clear_redo_stack ();
+  clear_redo_stack (us);
 
   int slot;
-  if (undo_stack.count < MAX_UNDO_OPERATIONS)
+  if (us->count < MAX_UNDO_OPERATIONS)
     {
-      slot = ring_slot (undo_stack.count);
-      undo_stack.count++;
+      slot = ring_slot (us, us->count);
+      us->count++;
     }
   else
     {
       /* Ring full — overwrite oldest, advance tail. */
-      slot = undo_stack.tail;
-      undo_stack.tail = (undo_stack.tail + 1) % MAX_UNDO_OPERATIONS;
+      slot = us->tail;
+      us->tail = (us->tail + 1) % MAX_UNDO_OPERATIONS;
     }
 
-  UndoOperation *op = &undo_stack.operations[slot];
+  UndoOperation *op = &us->operations[slot];
   release_op_data (op); /* drop any previous payload at this slot */
 
   op->type = type;
@@ -121,50 +141,56 @@ is_line_valid_in_buffer (TextBuffer *buffer, Line *target_line)
 }
 
 void
-invalidate_undo_operations_for_line (Line *deleted_line)
+invalidate_undo_operations_for_line (UndoStack *us, Line *deleted_line)
 {
-  if (!deleted_line)
+  if (!us || !deleted_line)
     return;
 
   /* Walk every physical slot — a stale reference can sit anywhere in the
      ring, not just inside the [tail, tail+count) active window. */
   for (int i = 0; i < MAX_UNDO_OPERATIONS; i++)
     {
-      if (undo_stack.operations[i].target_line == deleted_line)
+      if (us->operations[i].target_line == deleted_line)
         {
-          release_op_data (&undo_stack.operations[i]);
+          release_op_data (&us->operations[i]);
         }
     }
 }
 
 int
-can_undo (void)
+can_undo (const UndoStack *us)
 {
-  int off = top_undo_offset ();
+  if (!us)
+    return 0;
+  int off = top_undo_offset (us);
   if (off < 0)
     return 0;
-  return undo_stack.operations[ring_slot (off)].is_valid;
+  return us->operations[ring_slot (us, off)].is_valid;
 }
 
 int
-can_redo (void)
+can_redo (const UndoStack *us)
 {
-  int off = top_redo_offset ();
+  if (!us)
+    return 0;
+  int off = top_redo_offset (us);
   if (off < 0)
     return 0;
-  return undo_stack.operations[ring_slot (off)].is_valid;
+  return us->operations[ring_slot (us, off)].is_valid;
 }
 
 void
-clear_redo_stack (void)
+clear_redo_stack (UndoStack *us)
 {
-  for (int i = 0; i < undo_stack.undo_depth; i++)
+  if (!us)
+    return;
+  for (int i = 0; i < us->undo_depth; i++)
     {
-      int off = undo_stack.count - 1 - i;
-      undo_stack.operations[ring_slot (off)].is_valid = 0;
+      int off = us->count - 1 - i;
+      us->operations[ring_slot (us, off)].is_valid = 0;
     }
-  undo_stack.count -= undo_stack.undo_depth;
-  undo_stack.undo_depth = 0;
+  us->count -= us->undo_depth;
+  us->undo_depth = 0;
 }
 
 void
@@ -201,24 +227,21 @@ validate_cursor_position (TextBuffer *buffer)
 }
 
 void
-perform_undo (TextBuffer *buffer)
+perform_undo (UndoStack *us, TextBuffer *buffer)
 {
-  if (!can_undo () || !buffer)
+  if (!can_undo (us) || !buffer)
     return;
 
-  int off = top_undo_offset ();
-  UndoOperation *op = &undo_stack.operations[ring_slot (off)];
+  int off = top_undo_offset (us);
+  UndoOperation *op = &us->operations[ring_slot (us, off)];
 
   if (op->type == UNDO_INSERT_LINE && op->target_line == NULL)
     {
       Line *to_remove = buffer->head;
       if (to_remove)
         {
-          // Invalidate any operations that reference the line being removed
-          invalidate_undo_operations_for_line (to_remove);
+          invalidate_undo_operations_for_line (us, to_remove);
 
-          // Update current line pointer if it's pointing to the line being
-          // removed
           if (buffer->current_line_node == to_remove)
             {
               buffer->current_line_node = to_remove->next;
@@ -239,7 +262,7 @@ perform_undo (TextBuffer *buffer)
           free (to_remove);
           buffer->num_lines--;
         }
-      undo_stack.undo_depth++;
+      us->undo_depth++;
       validate_cursor_position (buffer);
       return;
     }
@@ -248,7 +271,7 @@ perform_undo (TextBuffer *buffer)
       && (!op->is_valid || !is_line_valid_in_buffer (buffer, op->target_line)))
     {
       op->is_valid = 0;
-      undo_stack.undo_depth++; // Skip this invalid operation
+      us->undo_depth++; // Skip this invalid operation
       return;
     }
 
@@ -261,7 +284,6 @@ perform_undo (TextBuffer *buffer)
         {
           line_delete_char_at (target_line, op->col_pos);
 
-          // Update cursor if it's on this line
           if (buffer->current_line_node == target_line
               && buffer->current_col_offset > op->col_pos)
             {
@@ -271,12 +293,10 @@ perform_undo (TextBuffer *buffer)
       break;
 
     case UNDO_DELETE_CHAR:
-      // Only restore the character if the position is valid and makes sense
       if (op->col_pos <= line_get_length (target_line) && op->data_len > 0)
         {
           line_insert_char_at (target_line, op->col_pos, op->data[0]);
 
-          // Update cursor if it's on this line
           if (buffer->current_line_node == target_line
               && buffer->current_col_offset > op->col_pos)
             {
@@ -287,22 +307,17 @@ perform_undo (TextBuffer *buffer)
 
     case UNDO_INSERT_LINE:
       {
-        // Normal case - target_line is not NULL
         Line *to_remove = target_line->next;
         if (to_remove)
           {
-            // Invalidate any operations that reference the line being removed
-            invalidate_undo_operations_for_line (to_remove);
+            invalidate_undo_operations_for_line (us, to_remove);
 
-            // Update current line pointer if it's pointing to the line being
-            // removed
             if (buffer->current_line_node == to_remove)
               {
                 buffer->current_line_node = target_line;
                 buffer->current_col_offset = line_get_length (target_line);
               }
 
-            // Remove the line from the linked list
             if (to_remove->next)
               {
                 to_remove->next->prev = target_line;
@@ -339,10 +354,8 @@ perform_undo (TextBuffer *buffer)
             char *second_content = line_to_string (second_line);
             if (second_content)
               {
-                // Invalidate operations that reference the second line
-                invalidate_undo_operations_for_line (second_line);
+                invalidate_undo_operations_for_line (us, second_line);
 
-                // Update cursor if it's on the second line
                 if (buffer->current_line_node == second_line)
                   {
                     buffer->current_line_node = target_line;
@@ -350,12 +363,10 @@ perform_undo (TextBuffer *buffer)
                         = op->col_pos + buffer->current_col_offset;
                   }
 
-                // Merge the lines back together
                 line_insert_string_at (target_line, op->col_pos,
                                        second_content);
                 free (second_content);
 
-                // Remove the second line
                 target_line->next = second_line->next;
                 if (second_line->next)
                   {
@@ -376,7 +387,6 @@ perform_undo (TextBuffer *buffer)
 
     case UNDO_MERGE_LINES:
       {
-        // Split the line back at the merge point
         size_t split_pos = op->col_pos;
         char *line_text = line_to_string (target_line);
 
@@ -386,7 +396,6 @@ perform_undo (TextBuffer *buffer)
 
             if (new_line)
               {
-                // Truncate the original line
                 gap_buffer_move_cursor_to (target_line->gb, split_pos);
                 size_t chars_to_delete
                     = line_get_length (target_line) - split_pos;
@@ -395,10 +404,8 @@ perform_undo (TextBuffer *buffer)
                     gap_buffer_delete_char (target_line->gb);
                   }
 
-                // Insert the new line
                 insert_line_after (buffer, target_line, new_line);
 
-                // Update cursor if it was beyond the split point
                 if (buffer->current_line_node == target_line
                     && buffer->current_col_offset > split_pos)
                   {
@@ -412,26 +419,23 @@ perform_undo (TextBuffer *buffer)
       }
     }
 
-  undo_stack.undo_depth++;
-
-  // Always validate cursor position after undo
+  us->undo_depth++;
   validate_cursor_position (buffer);
 }
 
 void
-perform_redo (TextBuffer *buffer)
+perform_redo (UndoStack *us, TextBuffer *buffer)
 {
-  if (!can_redo () || !buffer)
+  if (!can_redo (us) || !buffer)
     return;
 
-  int off = top_redo_offset ();
-  UndoOperation *op = &undo_stack.operations[ring_slot (off)];
+  int off = top_redo_offset (us);
+  UndoOperation *op = &us->operations[ring_slot (us, off)];
 
-  // Validate the target line still exists in the buffer
   if (!op->is_valid || !is_line_valid_in_buffer (buffer, op->target_line))
     {
       op->is_valid = 0;
-      undo_stack.undo_depth--;
+      us->undo_depth--;
       return;
     }
 
@@ -444,7 +448,6 @@ perform_redo (TextBuffer *buffer)
         {
           line_insert_char_at (target_line, op->col_pos, op->data[0]);
 
-          // Update cursor if it's on this line
           if (buffer->current_line_node == target_line
               && buffer->current_col_offset > op->col_pos)
             {
@@ -458,7 +461,6 @@ perform_redo (TextBuffer *buffer)
         {
           line_delete_char_at (target_line, op->col_pos);
 
-          // Update cursor if it's on this line
           if (buffer->current_line_node == target_line
               && buffer->current_col_offset > op->col_pos)
             {
@@ -482,18 +484,14 @@ perform_redo (TextBuffer *buffer)
         Line *to_remove = target_line->next;
         if (to_remove)
           {
-            // Invalidate any operations that reference the line being removed
-            invalidate_undo_operations_for_line (to_remove);
+            invalidate_undo_operations_for_line (us, to_remove);
 
-            // Update current line pointer if it's pointing to the line being
-            // removed
             if (buffer->current_line_node == to_remove)
               {
                 buffer->current_line_node = target_line;
                 buffer->current_col_offset = line_get_length (target_line);
               }
 
-            // Remove the line
             if (to_remove->next)
               {
                 to_remove->next->prev = target_line;
@@ -514,7 +512,6 @@ perform_redo (TextBuffer *buffer)
 
     case UNDO_SPLIT_LINE:
       {
-        // Split the line at the specified position
         size_t split_pos = op->col_pos;
         char *line_text = line_to_string (target_line);
 
@@ -524,7 +521,6 @@ perform_redo (TextBuffer *buffer)
 
             if (new_line)
               {
-                // Truncate the original line
                 gap_buffer_move_cursor_to (target_line->gb, split_pos);
                 size_t chars_to_delete
                     = line_get_length (target_line) - split_pos;
@@ -533,10 +529,8 @@ perform_redo (TextBuffer *buffer)
                     gap_buffer_delete_char (target_line->gb);
                   }
 
-                // Insert the new line
                 insert_line_after (buffer, target_line, new_line);
 
-                // Update cursor if it was beyond the split point
                 if (buffer->current_line_node == target_line
                     && buffer->current_col_offset > split_pos)
                   {
@@ -557,10 +551,8 @@ perform_redo (TextBuffer *buffer)
             char *second_content = line_to_string (second_line);
             if (second_content)
               {
-                // Invalidate operations that reference the second line
-                invalidate_undo_operations_for_line (second_line);
+                invalidate_undo_operations_for_line (us, second_line);
 
-                // Update cursor if it's on the second line
                 if (buffer->current_line_node == second_line)
                   {
                     buffer->current_line_node = target_line;
@@ -568,13 +560,11 @@ perform_redo (TextBuffer *buffer)
                                                  + buffer->current_col_offset;
                   }
 
-                // Merge the lines
                 line_insert_string_at (target_line,
                                        line_get_length (target_line),
                                        second_content);
                 free (second_content);
 
-                // Remove the second line
                 target_line->next = second_line->next;
                 if (second_line->next)
                   {
@@ -594,13 +584,11 @@ perform_redo (TextBuffer *buffer)
       }
     }
 
-  undo_stack.undo_depth--;
-
-  // Always validate cursor position after redo
+  us->undo_depth--;
   validate_cursor_position (buffer);
 }
 
-// Legacy functions for compatibility (now implemented using line pointers)
+/* Legacy helpers — kept for completeness but unused by the editor. */
 size_t
 get_line_number (TextBuffer *buffer, Line *target)
 {
@@ -616,12 +604,8 @@ get_line_number (TextBuffer *buffer, Line *target)
       line_num++;
     }
 
-  // If target not found, return a safe value
   if (current != target)
-    {
-      return 0;
-    }
-
+    return 0;
   return line_num;
 }
 

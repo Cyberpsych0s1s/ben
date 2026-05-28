@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #include "editor_state.h"
 #include "text_editor_functions.h"
 #include <string.h>
@@ -9,6 +10,8 @@ init_editor_state (EditorState *state, const char *filename)
     return -1;
 
   init_editor_buffer (&state->buffer);
+  init_undo_system (&state->undo);
+  init_search_state (&state->search);
 
   state->current_mode = MODE_NORMAL;
   state->top_line = 0;
@@ -51,6 +54,7 @@ free_editor_state (EditorState *state)
   if (!state)
     return;
 
+  free_undo_system (&state->undo);
   free_editor_buffer (&state->buffer);
 }
 

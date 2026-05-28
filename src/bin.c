@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifdef _WIN32
 #include <pdcurses.h>
 #else
@@ -44,8 +45,6 @@ main (int argc, char *argv[])
       return EXIT_FAILURE;
     }
 
-  init_undo_system ();
-
   char command[MAX_COMMAND_LENGTH] = "";
 
   while (1)
@@ -57,14 +56,15 @@ main (int argc, char *argv[])
       clear ();
 
       drawModeIndicator (editor_state.current_mode,
-                         editor_state.line_wrap_enabled);
+                         editor_state.line_wrap_enabled, &editor_state.search);
 
       attron (COLOR_PAIR (COLOR_PAIR_LINE_NUMBERS));
       drawLineNumbers (visible_lines, &editor_state.buffer,
                        editor_state.top_line);
       attroff (COLOR_PAIR (COLOR_PAIR_LINE_NUMBERS));
       drawTextContent (visible_lines, &editor_state.buffer,
-                       editor_state.top_line, editor_state.line_wrap_enabled);
+                       editor_state.top_line, editor_state.line_wrap_enabled,
+                       &editor_state.search);
 
       drawStatusBar (&editor_state, editor_state.current_mode == MODE_COMMAND
                                         ? command

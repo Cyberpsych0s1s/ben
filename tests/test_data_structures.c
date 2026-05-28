@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #include "data_structures.h"
 #include "editor_state.h"
 #include "gap_buffer.h"

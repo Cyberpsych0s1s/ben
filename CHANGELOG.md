@@ -57,3 +57,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `insert_line_after`. Call sites updated.
 - `head` / `current` fields from `UndoStack` — replaced with cleaner
   `tail` / `count` / `undo_depth` ring-buffer state.
+- Module-global `undo_stack` and `search_state` statics — both now live on
+  `EditorState`, removing the single-buffer assumption.
+
+### Changed
+- `:command` dispatch refactored from a chained `else if (strcmp ...)` to
+  a small `{name, takes_arg, handler}` table. Each handler returns
+  `CMD_OK` / `CMD_QUIT` / `CMD_ERROR`. Adding a new `:command` is now a
+  one-line change to the table.
+- All undo functions now take an explicit `UndoStack *` parameter
+  (`init_undo_system`, `push_undo_operation`, `can_undo`, `can_redo`,
+  `perform_undo`, `perform_redo`, `clear_redo_stack`,
+  `invalidate_undo_operations_for_line`). New `free_undo_system` for
+  releasing heap-allocated op payloads.
+- Render functions (`drawModeIndicator`, `drawTextContent`,
+  `draw_line_with_search_highlight`) now take an explicit
+  `const SearchState *` parameter.
+
+### Added
+- SPDX-License-Identifier MIT header on every source file (`include/`,
+  `src/`, `tests/`).

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #ifndef COLOR_CONFIG_H
 #define COLOR_CONFIG_H
 
