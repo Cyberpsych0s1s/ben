@@ -1,5 +1,11 @@
 # ben
 
+[![CI](https://github.com/Cyberpsych0s1s/ben/actions/workflows/ci.yml/badge.svg)](https://github.com/Cyberpsych0s1s/ben/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![Language: C99](https://img.shields.io/badge/C-99-blue.svg)](https://en.cppreference.com/w/c/99)
+![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey)
+![Code size](https://img.shields.io/github/languages/code-size/Cyberpsych0s1s/ben)
+
 A minimalist, Vim-inspired terminal text editor written in C.
 
 Modal editing, gap-buffer–backed lines, multi-level undo/redo, atomic file
