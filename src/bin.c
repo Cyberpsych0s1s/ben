@@ -32,6 +32,10 @@ main (int argc, char *argv[])
 
   start_color ();
   init_editor_colors ();
+  /* Make every unpainted cell (including post-clear() background fill)
+     adopt the editor's text colour pair, so the theme covers the whole
+     terminal instead of bleeding through to the host's defaults. */
+  bkgd (' ' | COLOR_PAIR (COLOR_PAIR_TEXT));
   cbreak ();
   keypad (stdscr, TRUE);
   noecho ();

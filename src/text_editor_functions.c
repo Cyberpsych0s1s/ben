@@ -285,6 +285,15 @@ drawLineNumbers (int visible_lines, const TextBuffer *buffer, int top_line)
       current_line_node = current_line_node->next;
       line_num++;
     }
+
+  /* Vim-style empty-line markers in the gutter for rows past EOF. */
+  attron (COLOR_PAIR (COLOR_PAIR_LINE_NUMBERS));
+  while (screen_row <= visible_lines)
+    {
+      mvprintw (screen_row, 1, "   ~  ");
+      screen_row++;
+    }
+  attroff (COLOR_PAIR (COLOR_PAIR_LINE_NUMBERS));
 }
 
 void
