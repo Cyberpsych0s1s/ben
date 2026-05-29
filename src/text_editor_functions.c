@@ -335,42 +335,55 @@ int
 get_cursor_screen_row (const TextBuffer *buffer, int visible_lines,
                        int top_line, int line_wrap_enabled)
 {
-  Line *current_line_node = buffer->head;
-  int line_count = 0;
-  int screen_row = 1; // Start from row 1 to account for mode indicator
+  (void)visible_lines;
+  if (!buffer || !buffer->current_line_node)
+    return 1;
+
   int max_col = getmaxx (stdscr);
   int text_width = max_col - 8;
 
-  for (int i = 0; i < top_line && current_line_node != NULL; ++i)
+  /* Cursor's wrapped-line offset within its own line. */
+  int cursor_wrapped_offset = 0;
+  if (line_wrap_enabled && text_width > 0)
+    cursor_wrapped_offset
+        = (int)(buffer->current_col_offset / text_width);
+
+  /* Walk from head to current_line_node, summing screen rows only for lines
+     at or after top_line. This single pass also gives us the cursor's
+     absolute line index, so we can detect cursor-above-view and return a
+     value < 1 (which the caller uses to trigger an upward scroll). */
+  Line *line = buffer->head;
+  int abs_index = 0;
+  int screen_row = 1;
+
+  while (line != NULL && line != buffer->current_line_node)
     {
-      current_line_node = current_line_node->next;
-      line_count++;
+      if (abs_index >= top_line)
+        {
+          char *txt = line_to_string (line);
+          int wrapped
+              = txt ? get_wrapped_line_count (txt, text_width,
+                                              line_wrap_enabled)
+                    : 1;
+          if (txt)
+            free (txt);
+          screen_row += wrapped;
+        }
+      line = line->next;
+      abs_index++;
     }
 
-  while (current_line_node != NULL
-         && current_line_node != buffer->current_line_node)
-    {
-      char *line_text = line_to_string (current_line_node);
-      int wrapped_lines = line_text
-                              ? get_wrapped_line_count (line_text, text_width,
-                                                        line_wrap_enabled)
-                              : 1;
-      if (line_text)
-        free (line_text);
+  if (line == NULL)
+    return 1; /* current_line_node not in this buffer — bail safely */
 
-      screen_row += wrapped_lines;
-      current_line_node = current_line_node->next;
-      line_count++;
+  if (abs_index < top_line)
+    {
+      /* Cursor is scrolled out above the visible window. Return a row
+         number <= 0 so the camera in bin.c scrolls back up. */
+      return 1 - (top_line - abs_index) + cursor_wrapped_offset;
     }
 
-  if (current_line_node == buffer->current_line_node && line_wrap_enabled
-      && text_width > 0)
-    {
-      int cursor_wrapped_line = buffer->current_col_offset / text_width;
-      screen_row += cursor_wrapped_line;
-    }
-
-  return screen_row;
+  return screen_row + cursor_wrapped_offset;
 }
 
 void
